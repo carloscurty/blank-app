@@ -57,9 +57,7 @@ import time
 #------
 
 #------ Sidebar
-st.sidebar.title("MENU")
-
-import streamlit as st
+#st.sidebar.title("MENU")
 
 # Define the pages
 main_page = st.Page("main_page.py", title="Main Page", icon="🎈")

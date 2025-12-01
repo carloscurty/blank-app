@@ -22,15 +22,48 @@ st.line_chart(chart_data)
 
 
 #------ Mapa
+#------ Checkbox
+if st.checkbox('Exibir o mapa'):
+    map_data = pd.DataFrame(
+        np.random.randn(x*x, 2) / [50, 50] + [37.76, -122.4],
+        columns=['lat', 'lon'])
 
-map_data = pd.DataFrame(
-    np.random.randn(x*x, 2) / [50, 50] + [37.76, -122.4],
-    columns=['lat', 'lon'])
-
-st.map(map_data)
+    st.map(map_data)
 
 import streamlit as st
 st.text_input("Your name", key="name")
 
 # You can access the value at any point with:
 st.session_state.name
+
+#------ Caixa de seleção para as opções
+df = pd.DataFrame({
+    'first column': [1, 2, 30, 4],
+    'second column': [10, 20, 30, 40]
+    })
+
+option = st.selectbox(
+    'Which number do you like best?',
+     df['first column'])
+
+'You selected: ', option
+
+#------LAYOUT
+#
+#
+#
+#
+# 
+#------
+
+# Add a selectbox to the sidebar:
+add_selectbox = st.sidebar.selectbox(
+    'How would you like to be contacted?',
+    ('Email', 'Home phone', 'Mobile phone')
+)
+
+# Add a slider to the sidebar:
+add_slider = st.sidebar.slider(
+    'Select a range of values',
+    0.0, 100.0, (25.0, 75.0)
+)

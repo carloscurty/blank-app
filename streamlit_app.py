@@ -60,8 +60,8 @@ import time
 #st.sidebar.title("MENU")
 
 # Define the pages
-main_page = st.Page("main_page.py", title="Main Page", icon="🎈")
-page_2 = st.Page("page_2.py", title="Page 2", icon="❄️")
+main_page = st.Page("main_page.py", title="Vendas", icon="🛒")
+page_2 = st.Page("page_2.py", title="Financeiro", icon="📈")
 page_3 = st.Page("page_3.py", title="Page 3", icon="🎉")
 
 # Set up navigation

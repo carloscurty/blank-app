@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import time
+import runpy
 
 #dataframe = pd.DataFrame(
 #    np.random.randn(10, 20),
@@ -57,15 +58,18 @@ import time
 #------
 
 #------ Sidebar
-#st.sidebar.title("MENU")
+st.sidebar.title("MENU")
 
-# Define the pages
-main_page = st.Page("main_page.py", title="Vendas", icon="🛒")
-page_2 = st.Page("page_2.py", title="Financeiro", icon="📈")
-page_3 = st.Page("page_3.py", title="Caixa", icon="💰")
+# Manual navigation: render the sidebar title first, then the page selector
+# Use a simple radio so `MENU` stays above the list of pages.
+pages = [
+	("Vendas", "main_page.py"),
+	("Financeiro", "page_2.py"),
+	("Caixa", "page_3.py"),
+]
 
-# Set up navigation
-pg = st.navigation([main_page, page_2, page_3])
+selection = st.sidebar.radio("", [p[0] for p in pages])
+selected_path = next(p[1] for p in pages if p[0] == selection)
 
-# Run the selected page
-pg.run()
+# Execute the selected page file (each page runs Streamlit top-level APIs at import time)
+runpy.run_path(selected_path, run_name="__main__")

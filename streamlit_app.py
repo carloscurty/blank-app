@@ -64,8 +64,8 @@ st.sidebar.title("MENU")
 # Use a simple radio so `MENU` stays above the list of pages.
 pages = [
 	("Vendas", "main_page.py"),
-	("Financeiro", "page_2.py"),
-	("Caixa", "page_3.py"),
+	("Contas a Pagar", "cap.py"),
+	("Caixa", "caixa.py"),
 ]
 
 selection = st.sidebar.radio("", [p[0] for p in pages])

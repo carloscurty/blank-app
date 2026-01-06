@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 
-st.markdown("# Caixa 💰")
-st.sidebar.markdown("# Caixa 💰")
+st.markdown("### 💰 Caixa")
+st.sidebar.markdown("### 💰 Filtros:")
 
 # Aceitar também .xls e .xlsx
 arquivo = st.file_uploader("Upload de arquivo", type=["csv", "xls", "xlsx"])

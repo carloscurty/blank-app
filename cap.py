@@ -1,17 +1,6 @@
 import streamlit as st
 import pandas as pd
-import openpyxl
-from openpyxl.styles import colors
 import datetime
-
-# --- MONKEY PATCH (Mantido) ---
-original_color_init = colors.Color.__init__
-def patched_color_init(self, rgb=None, indexed=None, auto=None, theme=None, tint=0.0, index=None):
-    try:
-        original_color_init(self, rgb=rgb, indexed=indexed, auto=auto, theme=theme, tint=tint, index=index)
-    except ValueError:
-        pass
-colors.Color.__init__ = patched_color_init
 
 # --- FUNÇÃO DE CARREGAMENTO COM CACHE ---
 @st.cache_data
@@ -93,16 +82,15 @@ if cols_datas_disponiveis:
 # 3. FILTRO DA COLUNA "PAGO"
 filtro_pago = []
 if 'Pago' in arquivo.columns:
-    opcoes_pago = arquivo['Pago'].unique()
-    filtro_pago = st.sidebar.multiselect(
-        "Selecione o status:",
-        options=opcoes_pago,
-        default=opcoes_pago
-    )
-    if filtro_pago:
-        arquivo = arquivo[arquivo['Pago'].isin(filtro_pago)]
-    else:
-        arquivo = arquivo[arquivo['Pago'].isin(filtro_pago)] # Vazio se nada selecionado
+    opcoes_pago = sorted(arquivo['Pago'].dropna().unique())
+    if opcoes_pago:
+        filtro_pago = st.sidebar.multiselect(
+            "Selecione o status:",
+            options=opcoes_pago,
+            default=list(opcoes_pago)
+        )
+        if filtro_pago:
+            arquivo = arquivo[arquivo['Pago'].isin(filtro_pago)]
 
 # 4. PREPARAÇÃO DA EXIBIÇÃO
 df_exibicao = arquivo.copy()
@@ -169,4 +157,7 @@ st.write("Visualização Detalhada:")
 if len(df_exibicao) > 500:
     st.warning(f"Exibindo {len(df_exibicao)} linhas. A tabela pode ficar lenta. Use os filtros para reduzir.")
 
-st.table(styler)
+if len(df_exibicao) > 0:
+    st.dataframe(df_exibicao, use_container_width=True, hide_index=esconder_index)
+else:
+    st.info("Nenhum dado disponível com os filtros selecionados.")

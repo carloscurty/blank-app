@@ -99,13 +99,85 @@ try:
         df['data_hora'] = pd.to_datetime(df['data_hora'])
         
         # Métricas
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Venda Líquida", f"R$ {df['valor_liquido'].sum():,.2f}")
-        k2.metric("Pedidos", df['id_pedido'].nunique())
+        k1, k2, k3, k4 = st.columns(4)
+        ticket_medio = df['valor_liquido'].sum() / df['id_pedido'].nunique() if df['id_pedido'].nunique() > 0 else 0
+        k1.metric("Venda Bruta", f"R$ {df['valor_bruto'].sum():,.2f}")
+        k2.metric("Ticket Médio", f"R$ {ticket_medio:,.2f}")
+        k3.metric("Venda Líquida", f"R$ {df['valor_liquido'].sum():,.2f}")
+        k4.metric("Pedidos", df['id_pedido'].nunique())
         
-        if 'ticket_medio' in df.columns:
-            k3.metric("Ticket Médio", f"R$ {df['ticket_medio'].mean():,.2f}")
-        
+        st.divider()       
+
+        # Gráficos por canal de venda
+        canal_stats = df.groupby('canal_venda').agg({
+            'valor_liquido': 'sum',
+            'id_pedido': 'nunique'
+        }).reset_index()
+
+        canal_stats.columns = ['Canal', 'Faturamento', 'Pedidos']
+
+        # --- CÁLCULO DAS PORCENTAGENS ---
+        canal_stats['Perc_Fat'] = canal_stats['Faturamento'] / canal_stats['Faturamento'].sum()
+        canal_stats['Perc_Ped'] = canal_stats['Pedidos'] / canal_stats['Pedidos'].sum()
+
+        g1, g2 = st.columns(2)
+
+        # --- Gráfico de Faturamento (%) ---
+        fig_faturamento = px.bar(canal_stats, 
+                                x='Faturamento', 
+                                y='Canal', 
+                                orientation='h',
+                                text='Perc_Fat', 
+                                title="Faturamento por Canal",
+                                hover_data={'Perc_Fat':':.1%', 'Faturamento':':,.2f'}) 
+
+        # LÓGICA CONDICIONAL: < 10% fora, >= 10% dentro
+        posicoes_fat = ['outside' if val < 0.04 else 'inside' for val in canal_stats['Perc_Fat']]
+
+        fig_faturamento.update_traces(
+            texttemplate='%{text:.1%}', 
+            textposition=posicoes_fat, # Aplica a lista de posições calculada acima
+            insidetextanchor='middle'  # Centraliza o texto quando estiver dentro
+        )
+
+        fig_faturamento.update_layout(
+            xaxis_visible=False,
+            yaxis_title=None,
+            yaxis={'categoryorder':'total ascending'},
+            uniformtext_minsize=8, # Garante que o texto não fique microscópico
+            uniformtext_mode='hide'
+        )
+
+        g1.plotly_chart(fig_faturamento, use_container_width=True)
+
+        # --- Gráfico de Pedidos (%) ---
+        fig_pedidos = px.bar(canal_stats, 
+                            x='Pedidos', 
+                            y='Canal', 
+                            orientation='h',
+                            text='Perc_Ped', 
+                            title="Pedidos por Canal",
+                            hover_data={'Perc_Ped':':.1%', 'Pedidos':':d'})
+
+        # LÓGICA CONDICIONAL: < 10% fora, >= 10% dentro
+        posicoes_ped = ['outside' if val < 0.04 else 'inside' for val in canal_stats['Perc_Ped']]
+
+        fig_pedidos.update_traces(
+            texttemplate='%{text:.1%}', 
+            textposition=posicoes_ped, # Aplica a lista de posições calculada
+            insidetextanchor='middle'
+        )
+
+        fig_pedidos.update_layout(
+            xaxis_visible=False,
+            yaxis_title=None,
+            yaxis={'categoryorder':'total ascending'},
+            uniformtext_minsize=8,
+            uniformtext_mode='hide'
+        )
+
+        g2.plotly_chart(fig_pedidos, use_container_width=True)
+
         st.divider()
         
         # Gráficos
@@ -120,6 +192,9 @@ try:
             
     else:
         st.info("Selecione um mês ao lado.")
+
+    # mostre os dados em uma tabela
+    st.write(df)
 
 except Exception as e:
     st.error(f"Erro inesperado: {e}")

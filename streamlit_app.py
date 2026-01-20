@@ -11,7 +11,7 @@ st.sidebar.title("MENU")
 pages = [
     ("🛒 Vendas", "vendas.py"),
     ("🎫 Contas a Pagar", "cap.py"),
-    ("💰 Caixa", "caixa.py"),
+    ("💰 Caixas", "caixa.py"),
 ]
 
 selection = st.sidebar.radio("Ir para:", [p[0] for p in pages])

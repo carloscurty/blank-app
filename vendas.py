@@ -12,7 +12,7 @@ st.set_page_config(page_title="Takeat BI", layout="wide", page_icon="🥗")
 
 # PASSO 1: Cole aqui o link INTEIRO que você pegou no Supabase (Connection String)
 # Aquele que tem: postgresql://postgres.wnjm... etc
-LINK_DO_SUPABASE = "postgresql://postgres.wnjmldfbjwfvkybessqg:[projetovendas2024]@aws-1-us-east-2.pooler.supabase.com:6543/postgres"
+LINK_DO_SUPABASE = "postgresql://postgres.wnjmldfbjwfvkybessqg:[SENHA_REAL]@aws-1-us-east-2.pooler.supabase.com:5432/postgres"
 
 # PASSO 2: Coloque sua senha real aqui
 SENHA_REAL = "projetovendas2024"

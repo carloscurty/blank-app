@@ -180,10 +180,17 @@ try:
 
         st.divider()
         
-        # Gráficos
+# Gráficos
         c1, c2 = st.columns(2)
+        
+        # 1. Agrupa os dados por dia
         diario = df.groupby(df['data_hora'].dt.date)['valor_liquido'].sum().reset_index()
-        fig = px.line(diario, x='data_hora', y='valor_liquido', title="Evolução Diária", markers=True)
+        
+        # 2. FILTRO: Remove os dias onde o valor é estritamente zero
+        diario = diario[diario['valor_liquido'] != 0]
+        
+        # 3. Cria o gráfico apenas com os dias ativos
+        fig = px.bar(diario, x='data_hora', y='valor_liquido', title="Evolução Diária")
         c1.plotly_chart(fig, use_container_width=True)
         
         if 'canal_venda' in df.columns:
@@ -193,8 +200,7 @@ try:
     else:
         st.info("Selecione um mês ao lado.")
 
-    # mostre os dados em uma tabela
-    st.write(df)
+    st.divider()    
 
 except Exception as e:
     st.error(f"Erro inesperado: {e}")

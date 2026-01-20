@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from sqlalchemy import create_engine, text
 import urllib.parse
+from datetime import date, timedelta
 
 st.set_page_config(page_title="Takeat BI", layout="wide", page_icon="🥗")
 
@@ -46,7 +47,7 @@ except Exception as e:
 # 📥 CARGA DE DADOS
 # ==========================================================
 
-st.markdown("### 🥗 Dashboard de Vendas")
+st.markdown("### 🥗 Dashboard de Vendas (Valor Bruto)")
 
 if DB_URI is None:
     st.warning("⚠️ Verifique o Link e a Senha no código.")
@@ -72,27 +73,49 @@ def carregar_dados(query, params=None):
 # ==========================================================
 
 try:
-    # Carrega Meses
-    df_meses = carregar_dados("SELECT DISTINCT TO_CHAR(data_hora, 'YYYY-MM') as mes_ano FROM vendas ORDER BY mes_ano DESC")
+    # 1. Busca Data Mínima e Máxima para configurar o calendário
+    df_datas = carregar_dados("SELECT MIN(data_hora) as data_min, MAX(data_hora) as data_max FROM vendas")
     
-    if df_meses.empty:
+    if df_datas.empty or pd.isna(df_datas['data_min'][0]):
         st.info("Conectado! Mas a tabela 'vendas' está vazia.")
         st.stop()
-        
-    opcoes = df_meses['mes_ano'].tolist()
+    
+    # Converte para objeto date do python
+    min_db = pd.to_datetime(df_datas['data_min'][0]).date()
+    max_db = pd.to_datetime(df_datas['data_max'][0]).date()
     
     st.sidebar.header("Filtros")
-    sel_meses = st.sidebar.multiselect("Selecione o Mês", options=opcoes, default=opcoes[:1])
+    
+    # 2. Seletor de Data (Intervalo)
+    padrao_inicio = max_db - timedelta(days=30) if max_db - min_db > timedelta(days=30) else min_db
+    
+    intervalo = st.sidebar.date_input(
+        "Selecione o Período",
+        value=(padrao_inicio, max_db),
+        min_value=min_db,
+        max_value=max_db,
+        format="DD/MM/YYYY"
+    )
 
-    if sel_meses:
-        placeholders = ', '.join([f':m{i}' for i in range(len(sel_meses))])
-        params = {f'm{i}': mes for i, mes in enumerate(sel_meses)}
-        query = f"SELECT * FROM vendas WHERE TO_CHAR(data_hora, 'YYYY-MM') IN ({placeholders})"
+    # Verifica se o usuário selecionou as duas datas
+    if len(intervalo) == 2:
+        data_ini, data_fim = intervalo
+        
+        # 3. Query Filtrando por DATA (BETWEEN)
+        query = """
+            SELECT * FROM vendas 
+            WHERE data_hora::date BETWEEN :d_ini AND :d_fim
+        """
+        params = {'d_ini': data_ini, 'd_fim': data_fim}
         
         df = carregar_dados(query, params=params)
         df['data_hora'] = pd.to_datetime(df['data_hora'])
         
-        # --- KPIS ---
+        if df.empty:
+            st.warning("Nenhuma venda encontrada neste período.")
+            st.stop()
+        
+        # --- KPIS PRINCIPAIS ---
         k1, k2, k3, k4 = st.columns(4)
         
         venda_bruta = df['valor_bruto'].sum()
@@ -190,16 +213,30 @@ try:
         diario = diario[diario['valor_bruto'] > 0]
         diario['data_hora'] = pd.to_datetime(diario['data_hora'])
 
-        # 2. Prepara colunas: Eixo X Limpo e Dia da Semana para o Hover
+        # ----------------------------------------------------
+        # NOVO: KPIS DO GRÁFICO DIÁRIO
+        # ----------------------------------------------------
+        if not diario.empty:
+            media_diaria = diario['valor_bruto'].mean()
+            
+            # Pega linha com valor máx e min
+            dia_max = diario.loc[diario['valor_bruto'].idxmax()]
+            dia_min = diario.loc[diario['valor_bruto'].idxmin()]
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Média Diária", formatar_real(media_diaria))
+            m2.metric(f"Melhor Dia ({dia_max['data_hora'].strftime('%d/%m')})", formatar_real(dia_max['valor_bruto']))
+            m3.metric(f"Pior Dia ({dia_min['data_hora'].strftime('%d/%m')})", formatar_real(dia_min['valor_bruto']))
+        
+        # ----------------------------------------------------
+
+        # 2. Configura Label e Dia da Semana
         dias_semana = {
             0: 'Segunda', 1: 'Terça', 2: 'Quarta', 3: 'Quinta',
             4: 'Sexta', 5: 'Sábado', 6: 'Domingo'
         }
         
-        # Cria coluna do eixo X ("06/12")
         diario['label_eixo'] = diario['data_hora'].dt.strftime('%d/%m')
-        
-        # Cria coluna auxiliar do dia da semana ("Sábado")
         diario['dia_sem'] = diario['data_hora'].dt.dayofweek.map(dias_semana)
 
         # 3. Gráfico
@@ -213,7 +250,7 @@ try:
             hovermode="x unified"
         )
         
-        # 4. Injeta o dia da semana no Hover usando customdata
+        # 4. Hover customizado
         fig.update_traces(
             customdata=diario[['dia_sem']],
             hovertemplate='<b>%{x} (%{customdata[0]})</b><br>Venda: R$ %{y:,.2f}<extra></extra>'
@@ -222,7 +259,7 @@ try:
         c1.plotly_chart(fig, use_container_width=True)
         
     else:
-        st.info("Selecione um mês ao lado.")
+        st.info("Selecione a Data Inicial e Final no calendário.")
 
     st.divider()    
 

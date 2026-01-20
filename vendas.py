@@ -52,7 +52,7 @@ except Exception as e:
 
 st.markdown("### 🥗 Dashboard de Vendas")
 
-if LINK_DO_SUPABASE == "COLE_O_LINK_INTEIRO_AQUI":
+if LINK_DO_SUPABASE == "postgresql://postgres.wnjmldfbjwfvkybessqg:[projetovendas2024]@aws-1-us-east-2.pooler.supabase.com:5432/postgres":
     st.warning("⚠️ Você precisa editar o arquivo `vendas.py` e colar o Link do Supabase na linha 15.")
     st.stop()
 

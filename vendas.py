@@ -8,11 +8,18 @@ from datetime import date, timedelta
 st.set_page_config(page_title="Takeat BI", layout="wide", page_icon="🥗")
 
 # ==========================================================
-# 🛠️ FUNÇÃO DE FORMATAÇÃO
+# 🛠️ FUNÇÕES DE FORMATAÇÃO E AJUDA
 # ==========================================================
 def formatar_real(valor):
     if pd.isna(valor): return "R$ 0,00"
     return f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+def traduzir_dia(data):
+    dias = {
+        'Monday': 'Seg', 'Tuesday': 'Ter', 'Wednesday': 'Qua', 
+        'Thursday': 'Qui', 'Friday': 'Sex', 'Saturday': 'Sáb', 'Sunday': 'Dom'
+    }
+    return dias.get(data.strftime('%A'), '')
 
 # ==========================================================
 # 🔗 CONFIGURAÇÃO DE CONEXÃO
@@ -50,19 +57,21 @@ st.sidebar.divider()
 if DB_URI is None: st.stop()
 
 # ==========================================================
-# PÁGINA 1: DASHBOARD
+# PÁGINA 1: DASHBOARD COMPLETO E FORMATADO
 # ==========================================================
 if pagina == "📊 Dashboard":
     st.markdown("### 🥗 Dashboard de Vendas")
     try:
+        # Pega limites de data
         df_datas = carregar_dados("SELECT MIN(data_hora) as data_min, MAX(data_hora) as data_max FROM vendas")
         if df_datas.empty or pd.isna(df_datas['data_min'][0]):
-            st.info("Banco vazio.")
+            st.info("Banco de dados vazio. Vá em 'Atualizar Dados' para começar.")
             st.stop()
         
         min_db = pd.to_datetime(df_datas['data_min'][0]).date()
         max_db = pd.to_datetime(df_datas['data_max'][0]).date()
         
+        # Filtros
         padrao_inicio = max_db - timedelta(days=30) if max_db - min_db > timedelta(days=30) else min_db
         st.sidebar.header("Filtros")
         intervalo = st.sidebar.date_input("Período", (padrao_inicio, max_db), min_value=min_db, max_value=max_db, format="DD/MM/YYYY")
@@ -79,42 +88,160 @@ if pagina == "📊 Dashboard":
             if not df.empty:
                 df['data_hora'] = pd.to_datetime(df['data_hora'])
                 
+                # --- 1. CARDS SUPERIORES ---
                 k1, k2, k3, k4 = st.columns(4)
                 fat = df['valor_bruto'].sum()
                 ped = df['id_pedido'].nunique()
+                liq = df['valor_liquido'].sum()
+                
                 k1.metric("Venda Bruta", formatar_real(fat))
                 k2.metric("Ticket Médio", formatar_real(fat/ped if ped else 0))
-                k3.metric("Venda Líquida", formatar_real(df['valor_liquido'].sum()))
-                k4.metric("Pedidos", ped)
+                k3.metric("Venda Líquida", formatar_real(liq))
+                k4.metric("Qtd. Pedidos", ped)
                 st.divider()
 
-                canal_stats = df.groupby('canal_venda').agg({'valor_bruto': 'sum', 'id_pedido': 'nunique'}).reset_index()
-                canal_stats['Perc_Fat'] = canal_stats['valor_bruto'] / canal_stats['valor_bruto'].sum()
-                
-                g1, g2 = st.columns(2)
-                fig1 = px.bar(canal_stats, x='valor_bruto', y='canal_venda', orientation='h', text='Perc_Fat', title="Faturamento por Canal")
-                fig1.update_traces(texttemplate='%{text:.1%}')
-                g1.plotly_chart(fig1, use_container_width=True)
+                # --- 2. GRÁFICOS DE CANAL ---
+                canal_stats = df.groupby('canal_venda').agg(
+                    Faturamento=('valor_bruto', 'sum'),
+                    Pedidos=('id_pedido', 'nunique')
+                ).reset_index().sort_values('Faturamento', ascending=True)
 
+                canal_stats['Faturamento_Label'] = canal_stats['Faturamento'].apply(formatar_real)
+
+                g1, g2 = st.columns(2)
+                
+                # Pizza
+                with g1:
+                    fig_pizza = px.pie(
+                        canal_stats, 
+                        values='Faturamento', 
+                        names='canal_venda', 
+                        title='Participação por Canal (%)',
+                        hole=0.4
+                    )
+                    fig_pizza.update_traces(
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Faturamento: %{value:,.2f}<extra></extra>'
+                    )
+                    st.plotly_chart(fig_pizza, use_container_width=True)
+
+                # Barras Canal
+                with g2:
+                    fig_bar = px.bar(
+                        canal_stats, 
+                        x='Faturamento', 
+                        y='canal_venda', 
+                        orientation='h', 
+                        text='Faturamento_Label', 
+                        title='Faturamento Total por Canal'
+                    )
+                    fig_bar.update_traces(
+                        texttemplate='%{text}', 
+                        textposition='outside',
+                        hovertemplate='<b>%{y}</b><br>Total: %{text}<extra></extra>'
+                    )
+                    fig_bar.update_layout(xaxis_title="", yaxis_title="")
+                    st.plotly_chart(fig_bar, use_container_width=True)
+
+                # --- 3. EVOLUÇÃO DIÁRIA (CORRIGIDA ORDEM) ---
+                st.subheader("Evolução Diária")
+                
                 diario = df.groupby(df['data_hora'].dt.date)['valor_bruto'].sum().reset_index()
-                fig_d = px.bar(diario, x='data_hora', y='valor_bruto', title="Evolução Diária")
-                g2.plotly_chart(fig_d, use_container_width=True)
+                diario.columns = ['Data', 'Venda']
+                diario['Data'] = pd.to_datetime(diario['Data'])
+                
+                # 1. Ordenação rigorosa pela data
+                diario = diario.sort_values('Data')
+
+                # 2. Cálculos e Labels
+                media_periodo = diario['Venda'].mean()
+                
+                diario['Performance'] = diario['Venda'].apply(
+                    lambda x: 'Acima da Média' if x >= media_periodo else 'Abaixo da Média'
+                )
+                
+                diario['Data_Formatada'] = diario['Data'].apply(lambda x: f"{x.day:02d}/{x.month:02d}")
+                diario['Venda_Label'] = diario['Venda'].apply(formatar_real)
+
+                # 3. Extrai a lista de ordem correta para forçar no gráfico
+                ordem_cronologica = diario['Data_Formatada'].tolist()
+
+                fig_d = px.bar(
+                    diario, 
+                    x='Data_Formatada', 
+                    y='Venda',
+                    color='Performance',
+                    color_discrete_map={
+                        'Acima da Média': '#2ecc71',
+                        'Abaixo da Média': '#e74c3c'
+                    },
+                    title="Vendas por Dia",
+                    text='Venda_Label'
+                )
+                
+                # 4. APLICAÇÃO DA ORDEM FORÇADA (categoryorder)
+                fig_d.update_layout(
+                    xaxis=dict(
+                        title="",
+                        type='category',
+                        categoryorder='array',
+                        categoryarray=ordem_cronologica # Força a ordem da lista extraída acima
+                    ),
+                    yaxis_title=None,
+                    yaxis_showticklabels=False,
+                    separators=",.",
+                    legend_title_text="",
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                fig_d.update_traces(
+                    textposition='none', 
+                    hovertemplate='<b>%{x}</b><br>Venda: %{text}<extra></extra>'
+                )
+                
+                st.plotly_chart(fig_d, use_container_width=True)
+
+                # --- 4. CARDS INFERIORES ---
+                st.markdown("##### Estatísticas do Período")
+                s1, s2, s3 = st.columns(3)
+                
+                melhor_dia = diario['Venda'].max()
+                pior_dia = diario['Venda'].min()
+                
+                dia_melhor_obj = diario.loc[diario['Venda'] == melhor_dia, 'Data'].values[0] if not diario.empty else None
+                dia_pior_obj = diario.loc[diario['Venda'] == pior_dia, 'Data'].values[0] if not diario.empty else None
+                
+                label_melhor = f"{pd.to_datetime(dia_melhor_obj).strftime('%d/%m')} ({traduzir_dia(pd.to_datetime(dia_melhor_obj))})" if dia_melhor_obj else "-"
+                label_pior = f"{pd.to_datetime(dia_pior_obj).strftime('%d/%m')} ({traduzir_dia(pd.to_datetime(dia_pior_obj))})" if dia_pior_obj else "-"
+
+                s1.metric("Média Diária", formatar_real(media_periodo))
+                s2.metric(f"Melhor Dia: {label_melhor}", formatar_real(melhor_dia))
+                s3.metric(f"Pior Dia: {label_pior}", formatar_real(pior_dia))
+
             else:
-                st.warning("Sem dados.")
+                st.warning("Sem dados para o período selecionado.")
     except Exception as e:
-        st.error(f"Erro Dashboard: {e}")
+        st.error(f"Erro no Dashboard: {e}")
         st.cache_resource.clear()
 
 # ==========================================================
-# PÁGINA 2: CARGA DE DADOS (COM SOMA DE VALORES)
+# PÁGINA 2: CARGA COM SUBSTITUIÇÃO
 # ==========================================================
 elif pagina == "⚙️ Atualizar Dados":
-    st.markdown("### ⚙️ Atualização Incremental")
-    arquivo = st.file_uploader("Arraste seu arquivo aqui", type=["xlsx", "csv", "xls"])
+    st.markdown("### ⚙️ Atualização e Correção")
+    st.info("Utilize esta aba para carregar novos arquivos ou corrigir meses com dados errados.")
+    
+    arquivo = st.file_uploader("Arraste seu arquivo aqui (Excel ou CSV)", type=["xlsx", "csv", "xls"])
+    substituir = st.checkbox("⚠️ Modo de Correção: Substituir dados existentes (Marque se precisar re-upar um mês com erro)")
 
     if arquivo and st.button("Processar e Salvar"):
         try:
-            # 1. Encontra Cabeçalho
             if arquivo.name.endswith('.csv'):
                 df_temp = pd.read_csv(arquivo, header=None, nrows=10)
             else:
@@ -127,7 +254,7 @@ elif pagina == "⚙️ Atualizar Dados":
                     break
             
             if idx_cabecalho == -1:
-                st.error("❌ Coluna 'Pedido' não encontrada.")
+                st.error("❌ Coluna 'Pedido' não encontrada no arquivo.")
                 st.stop()
 
             arquivo.seek(0)
@@ -136,7 +263,6 @@ elif pagina == "⚙️ Atualizar Dados":
             else:
                 df_novo = pd.read_excel(arquivo, header=idx_cabecalho)
 
-            # 2. Mapeamento
             mapa_colunas = {
                 'Pedido': 'id_pedido',
                 'Data - Hora': 'data_hora',
@@ -149,58 +275,69 @@ elif pagina == "⚙️ Atualizar Dados":
             colunas_validas = [c for c in mapa_colunas.values() if c in df_novo.columns]
             
             if 'id_pedido' not in colunas_validas:
-                st.error("Erro Crítico: ID do Pedido não encontrado.")
+                st.error("Erro Crítico: Coluna de ID do Pedido não identificada.")
                 st.stop()
                 
             df_limpo = df_novo[colunas_validas].copy()
             
-            # Tratamento de Data e ID
             if 'data_hora' in df_limpo.columns:
-                df_limpo['data_hora'] = pd.to_datetime(df_limpo['data_hora'], dayfirst=True, errors='coerce')
+                df_limpo['data_hora'] = pd.to_datetime(df_limpo['data_hora'], format='%d/%m/%Y - %H:%M', errors='coerce')
+                df_limpo = df_limpo.dropna(subset=['data_hora'])
 
             df_limpo['id_pedido'] = pd.to_numeric(df_limpo['id_pedido'], errors='coerce')
-            df_limpo = df_limpo.dropna(subset=['id_pedido']) 
+            df_limpo = df_limpo.dropna(subset=['id_pedido'])
             df_limpo['id_pedido'] = df_limpo['id_pedido'].astype('int64')
 
-            # ---------------------------------------------------------
-            # 🚨 LÓGICA DE CONSOLIDAÇÃO (SOMA)
-            # ---------------------------------------------------------
-            # Se houver pedidos duplicados (ex: pagamentos parciais),
-            # SOMAMOS os valores e mantemos a data/canal do primeiro registro.
-            
-            df_agrupado = df_limpo.groupby('id_pedido', as_index=False).agg({
-                'data_hora': 'first',      # Mantém a data do primeiro registro
-                'canal_venda': 'first',    # Mantém o canal
-                'valor_bruto': 'sum',      # SOMA o valor bruto das parcelas
-                'valor_liquido': 'sum'     # SOMA o valor líquido das parcelas
-            })
-            # ---------------------------------------------------------
+            if 'canal_venda' in df_limpo.columns:
+                df_limpo['canal_venda'] = df_limpo['canal_venda'].fillna('Indefinido').astype(str)
+            if 'valor_bruto' in df_limpo.columns:
+                df_limpo['valor_bruto'] = df_limpo['valor_bruto'].fillna(0.0)
+            if 'valor_liquido' in df_limpo.columns:
+                df_limpo['valor_liquido'] = df_limpo['valor_liquido'].fillna(0.0)
 
-            # 3. Lógica Incremental
+            df_agrupado = df_limpo.groupby('id_pedido', as_index=False).agg({
+                'data_hora': 'first',      
+                'canal_venda': 'first',    
+                'valor_bruto': 'sum',      
+                'valor_liquido': 'sum'     
+            })
+            
             engine = get_engine()
-            with engine.connect() as conn:
-                ids_banco = pd.read_sql(text("SELECT id_pedido FROM vendas"), conn)
+            df_para_subir = pd.DataFrame()
+            ids_no_arquivo = df_agrupado['id_pedido'].tolist()
             
-            lista_existentes = set(ids_banco['id_pedido'].astype('int64').tolist())
+            if substituir:
+                st.info("🔄 Modo de Correção Ativado. Substituindo registros...")
+                with engine.begin() as conn:
+                    if ids_no_arquivo:
+                        ids_str = [str(x) for x in ids_no_arquivo]
+                        chunk_size = 1000
+                        for i in range(0, len(ids_str), chunk_size):
+                            batch = tuple(ids_str[i:i + chunk_size])
+                            if batch:
+                                conn.execute(text(f"DELETE FROM vendas WHERE id_pedido::text IN {batch}"))
+                df_para_subir = df_agrupado
+            else:
+                with engine.connect() as conn:
+                    ids_banco = pd.read_sql(text("SELECT id_pedido FROM vendas"), conn)
+                lista_existentes = set(ids_banco['id_pedido'].astype('int64').tolist())
+                df_para_subir = df_agrupado[~df_agrupado['id_pedido'].isin(lista_existentes)]
+
+            qtd = len(df_para_subir)
             
-            # Filtra usando o dataframe AGRUPADO
-            df_para_subir = df_agrupado[~df_agrupado['id_pedido'].isin(lista_existentes)]
-            
-            qtd_novos = len(df_para_subir)
-            
-            if qtd_novos > 0:
+            if qtd > 0:
                 progresso = st.progress(0)
-                st.write(f"Encontrei {qtd_novos} vendas novas consolidadas. Enviando...")
+                st.write(f"Gravando {qtd} registros...")
                 
                 with engine.begin() as conn:
                     df_para_subir.to_sql('vendas', conn, if_exists='append', index=False, chunksize=1000)
                 
                 progresso.progress(100)
-                st.success(f"✅ Sucesso! {qtd_novos} vendas gravadas.")
+                st.success("✅ Processo concluído com sucesso!")
                 st.balloons()
                 st.cache_data.clear()
             else:
-                st.warning("⚠️ Arquivo processado. Todas as vendas já estão no banco.")
+                st.warning("⚠️ Arquivo processado. Nenhuma venda nova encontrada.")
 
         except Exception as e:
             st.error(f"Erro detalhado: {e}")

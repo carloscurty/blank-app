@@ -78,12 +78,25 @@ if pagina == "📊 Dashboard":
 
         if len(intervalo) == 2:
             data_ini, data_fim = intervalo
-            query = """
-                SELECT id_pedido, data_hora, canal_venda, valor_bruto, valor_liquido 
-                FROM vendas 
-                WHERE data_hora::date BETWEEN :d_ini AND :d_fim
-            """
-            df = carregar_dados(query, params={'d_ini': data_ini, 'd_fim': data_fim})
+            
+            # Tenta buscar 'metodo'. Se falhar (coluna não existe), usa fallback.
+            try:
+                query = """
+                    SELECT id_pedido, data_hora, canal_venda, valor_bruto, valor_liquido, metodo 
+                    FROM vendas 
+                    WHERE data_hora::date BETWEEN :d_ini AND :d_fim
+                """
+                df = carregar_dados(query, params={'d_ini': data_ini, 'd_fim': data_fim})
+            except Exception:
+                # Fallback silencioso ou com aviso discreto
+                query_fallback = """
+                    SELECT id_pedido, data_hora, canal_venda, valor_bruto, valor_liquido 
+                    FROM vendas 
+                    WHERE data_hora::date BETWEEN :d_ini AND :d_fim
+                """
+                df = carregar_dados(query_fallback, params={'d_ini': data_ini, 'd_fim': data_fim})
+                df['metodo'] = 'N/D'
+
             
             if not df.empty:
                 df['data_hora'] = pd.to_datetime(df['data_hora'])
@@ -110,7 +123,6 @@ if pagina == "📊 Dashboard":
 
                 g1, g2 = st.columns(2)
                 
-                # Pizza
                 with g1:
                     fig_pizza = px.pie(
                         canal_stats, 
@@ -125,7 +137,6 @@ if pagina == "📊 Dashboard":
                     )
                     st.plotly_chart(fig_pizza, use_container_width=True)
 
-                # Barras Canal
                 with g2:
                     fig_bar = px.bar(
                         canal_stats, 
@@ -143,27 +154,21 @@ if pagina == "📊 Dashboard":
                     fig_bar.update_layout(xaxis_title="", yaxis_title="")
                     st.plotly_chart(fig_bar, use_container_width=True)
 
-                # --- 3. EVOLUÇÃO DIÁRIA (CORRIGIDA ORDEM) ---
+                # --- 3. EVOLUÇÃO DIÁRIA ---
                 st.subheader("Evolução Diária")
                 
                 diario = df.groupby(df['data_hora'].dt.date)['valor_bruto'].sum().reset_index()
                 diario.columns = ['Data', 'Venda']
                 diario['Data'] = pd.to_datetime(diario['Data'])
-                
-                # 1. Ordenação rigorosa pela data
                 diario = diario.sort_values('Data')
 
-                # 2. Cálculos e Labels
                 media_periodo = diario['Venda'].mean()
-                
                 diario['Performance'] = diario['Venda'].apply(
                     lambda x: 'Acima da Média' if x >= media_periodo else 'Abaixo da Média'
                 )
                 
                 diario['Data_Formatada'] = diario['Data'].apply(lambda x: f"{x.day:02d}/{x.month:02d}")
                 diario['Venda_Label'] = diario['Venda'].apply(formatar_real)
-
-                # 3. Extrai a lista de ordem correta para forçar no gráfico
                 ordem_cronologica = diario['Data_Formatada'].tolist()
 
                 fig_d = px.bar(
@@ -171,49 +176,83 @@ if pagina == "📊 Dashboard":
                     x='Data_Formatada', 
                     y='Venda',
                     color='Performance',
-                    color_discrete_map={
-                        'Acima da Média': '#2ecc71',
-                        'Abaixo da Média': '#e74c3c'
-                    },
+                    color_discrete_map={'Acima da Média': '#2ecc71', 'Abaixo da Média': '#e74c3c'},
                     title="Vendas por Dia",
                     text='Venda_Label'
                 )
-                
-                # 4. APLICAÇÃO DA ORDEM FORÇADA (categoryorder)
                 fig_d.update_layout(
-                    xaxis=dict(
-                        title="",
-                        type='category',
-                        categoryorder='array',
-                        categoryarray=ordem_cronologica # Força a ordem da lista extraída acima
-                    ),
-                    yaxis_title=None,
-                    yaxis_showticklabels=False,
-                    separators=",.",
-                    legend_title_text="",
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
-                    )
+                    xaxis=dict(title="", type='category', categoryorder='array', categoryarray=ordem_cronologica),
+                    yaxis_title=None, yaxis_showticklabels=False, separators=",.", legend_title_text="",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                
-                fig_d.update_traces(
-                    textposition='none', 
-                    hovertemplate='<b>%{x}</b><br>Venda: %{text}<extra></extra>'
-                )
-                
+                fig_d.update_traces(textposition='none', hovertemplate='<b>%{x}</b><br>Venda: %{text}<extra></extra>')
                 st.plotly_chart(fig_d, use_container_width=True)
 
-                # --- 4. CARDS INFERIORES ---
+# --- 4. TABELA CRUZADA (MÉTODO x CANAL) ---
+                st.divider()
+                st.subheader("📊 Detalhamento: Método x Canal")
+                
+                # --- ÁREA DE DIAGNÓSTICO E CORREÇÃO ---
+                if not df.empty and 'metodo' in df.columns and 'canal_venda' in df.columns:
+                    
+                    # 1. Tratamento de Choque (Limpeza Forçada)
+                    df['valor_bruto'] = pd.to_numeric(df['valor_bruto'], errors='coerce').fillna(0)
+                    
+                    # Preenche vazios para não quebrar o pivot
+                    df['metodo'] = df['metodo'].fillna('Não Identificado').astype(str)
+                    df['canal_venda'] = df['canal_venda'].fillna('Não Identificado').astype(str)
+                    
+                    # Remove espaços em branco
+                    df['metodo'] = df['metodo'].str.strip()
+                    df['canal_venda'] = df['canal_venda'].str.strip()
+
+                    try:
+                        # 2. Criação da Pivot Table
+                        df_pivot = df.pivot_table(
+                            index='metodo', 
+                            columns='canal_venda', 
+                            values='valor_bruto', 
+                            aggfunc='sum', 
+                            fill_value=0,
+                            margins=True,          
+                            margins_name='Total'   
+                        )
+
+                        # 3. Exibição
+                        if df_pivot.empty or df_pivot.shape[0] == 0:
+                            st.warning("⚠️ A tabela continua vazia mesmo após limpeza.")
+                        else:
+                            # Lógica de Ordenação
+                            if 'Total' in df_pivot.columns and 'Total' in df_pivot.index:
+                                linha_total = df_pivot.loc[['Total']]
+                                df_resto = df_pivot.drop('Total', axis=0).sort_values('Total', ascending=False)
+                                df_pivot_final = pd.concat([df_resto, linha_total])
+                            else:
+                                df_pivot_final = df_pivot
+
+                            # --- CORREÇÃO AQUI: Removemos o background_gradient que causava o erro ---
+                            st.dataframe(
+                                df_pivot_final.style.format("R$ {:,.2f}"), 
+                                use_container_width=True
+                            )
+                            
+                    except Exception as e:
+                        st.error(f"Erro na geração da matriz: {e}")
+                    
+                    # 4. Botão para DEBUG
+                    with st.expander("🕵️‍♂️ Espiar dados brutos (Debug)"):
+                        st.write("Abaixo, as primeiras 5 linhas usadas para tentar montar a tabela:")
+                        st.dataframe(df[['data_hora', 'metodo', 'canal_venda', 'valor_bruto']].head())
+                        st.write(f"Total de linhas carregadas: {len(df)}")
+                else:
+                    st.error("Colunas fundamentais ('metodo', 'canal_venda') não encontradas no DataFrame.")
+
+                # --- 5. CARDS INFERIORES ---
                 st.markdown("##### Estatísticas do Período")
                 s1, s2, s3 = st.columns(3)
                 
                 melhor_dia = diario['Venda'].max()
                 pior_dia = diario['Venda'].min()
-                
                 dia_melhor_obj = diario.loc[diario['Venda'] == melhor_dia, 'Data'].values[0] if not diario.empty else None
                 dia_pior_obj = diario.loc[diario['Venda'] == pior_dia, 'Data'].values[0] if not diario.empty else None
                 
@@ -231,7 +270,7 @@ if pagina == "📊 Dashboard":
         st.cache_resource.clear()
 
 # ==========================================================
-# PÁGINA 2: CARGA COM SUBSTITUIÇÃO
+# PÁGINA 2: CARGA COM SUBSTITUIÇÃO E CORREÇÃO DE CHUNK
 # ==========================================================
 elif pagina == "⚙️ Atualizar Dados":
     st.markdown("### ⚙️ Atualização e Correção")
@@ -268,7 +307,8 @@ elif pagina == "⚙️ Atualizar Dados":
                 'Data - Hora': 'data_hora',
                 'Canal': 'canal_venda',
                 'Valor Bruto': 'valor_bruto',
-                'Valor Líquido': 'valor_liquido'
+                'Valor Líquido': 'valor_liquido',
+                'Método': 'metodo'
             }
             
             df_novo = df_novo.rename(columns=mapa_colunas)
@@ -290,17 +330,26 @@ elif pagina == "⚙️ Atualizar Dados":
 
             if 'canal_venda' in df_limpo.columns:
                 df_limpo['canal_venda'] = df_limpo['canal_venda'].fillna('Indefinido').astype(str)
+            if 'metodo' in df_limpo.columns:
+                df_limpo['metodo'] = df_limpo['metodo'].fillna('Outros').astype(str)
+            else:
+                df_limpo['metodo'] = 'N/D'
+
             if 'valor_bruto' in df_limpo.columns:
                 df_limpo['valor_bruto'] = df_limpo['valor_bruto'].fillna(0.0)
             if 'valor_liquido' in df_limpo.columns:
                 df_limpo['valor_liquido'] = df_limpo['valor_liquido'].fillna(0.0)
 
-            df_agrupado = df_limpo.groupby('id_pedido', as_index=False).agg({
+            aggs = {
                 'data_hora': 'first',      
                 'canal_venda': 'first',    
                 'valor_bruto': 'sum',      
-                'valor_liquido': 'sum'     
-            })
+                'valor_liquido': 'sum'
+            }
+            if 'metodo' in df_limpo.columns:
+                aggs['metodo'] = 'first'
+
+            df_agrupado = df_limpo.groupby('id_pedido', as_index=False).agg(aggs)
             
             engine = get_engine()
             df_para_subir = pd.DataFrame()
@@ -311,7 +360,7 @@ elif pagina == "⚙️ Atualizar Dados":
                 with engine.begin() as conn:
                     if ids_no_arquivo:
                         ids_str = [str(x) for x in ids_no_arquivo]
-                        chunk_size = 1000
+                        chunk_size = 200 
                         for i in range(0, len(ids_str), chunk_size):
                             batch = tuple(ids_str[i:i + chunk_size])
                             if batch:
@@ -327,10 +376,10 @@ elif pagina == "⚙️ Atualizar Dados":
             
             if qtd > 0:
                 progresso = st.progress(0)
-                st.write(f"Gravando {qtd} registros...")
+                st.write(f"Gravando {qtd} registros em lotes menores...")
                 
                 with engine.begin() as conn:
-                    df_para_subir.to_sql('vendas', conn, if_exists='append', index=False, chunksize=1000)
+                    df_para_subir.to_sql('vendas', conn, if_exists='append', index=False, chunksize=200)
                 
                 progresso.progress(100)
                 st.success("✅ Processo concluído com sucesso!")

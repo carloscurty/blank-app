@@ -1,5 +1,6 @@
 import streamlit as st
 import runpy
+import conciliacao  # Importa o módulo novo que criamos
 
 # CONFIGURAÇÃO DEVE SER A PRIMEIRA LINHA
 st.set_page_config(page_title="Gestão Takeat", layout="wide", page_icon="📊")
@@ -7,16 +8,29 @@ st.set_page_config(page_title="Gestão Takeat", layout="wide", page_icon="📊")
 # ------ Sidebar
 st.sidebar.title("MENU")
 
-# Navegação
-pages = [
-    ("🛒 Vendas", "vendas.py"),
-    ("🎫 Contas a Pagar", "cap.py"),
-    ("💰 Caixas", "caixa.py"),
+# Lista de Opções do Menu
+menu_options = [
+    "🛒 Vendas", 
+    "🎫 Contas a Pagar", 
+    "💰 Caixas", 
+    "⚖️ Conciliação"  # Novo item adicionado
 ]
 
-selection = st.sidebar.radio("Ir para:", [p[0] for p in pages])
-selected_path = next(p[1] for p in pages if p[0] == selection)
+selection = st.sidebar.radio("Ir para:", menu_options)
 
-# Executa a página selecionada
-# Nota: runpy roda no mesmo processo, compartilhando st.session_state
-runpy.run_path(selected_path, run_name="__main__")
+# ------ Lógica de Roteamento (Router)
+if selection == "⚖️ Conciliação":
+    # Executa o módulo novo chamando a função app()
+    conciliacao.app()
+
+else:
+    # Mapeamento para os arquivos antigos (Legacy)
+    path_map = {
+        "🛒 Vendas": "vendas.py",
+        "🎫 Contas a Pagar": "cap.py",
+        "💰 Caixas": "caixa.py"
+    }
+    
+    # Executa via runpy (mantendo o funcionamento atual dos outros arquivos)
+    if selection in path_map:
+        runpy.run_path(path_map[selection], run_name="__main__")
